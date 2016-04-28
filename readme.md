@@ -1,3 +1,8 @@
+# NOTE
+
+This version of ofxBlur support GLSL version 4.50
+
+
 # ofxBlur is an addon for [openFrameworks](http://openframeworks.cc)
 
 ofxBlur uses a ping-pong technique on the graphics card to do a very fast, configurable blur. ofxBlur can also simulate bloom given the right parameters.
