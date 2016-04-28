@@ -13,6 +13,21 @@ void GaussianRow(int elements, vector<float>& row, float variance = .2) {
 	}
 }
 
+string generateVertexShaderSource() {
+
+	stringstream vertSrc;
+	vertSrc << "#version 450\n";
+	vertSrc << "uniform mat4 modelViewProjectionMatrix;\n";
+	vertSrc << "in vec2 texcoord;\n";
+	vertSrc << "out vec2 textureCoordinate;\n";
+	vertSrc << "void main() {\n";
+	vertSrc << "textureCoordinate = texcoord;\n";
+	vertSrc << "gl_Position = modelViewProjectionMatrix * vec4(texcoord, 0.0, 1.0);";
+	vertSrc << "}";
+
+	return vertSrc.str();
+}
+
 string generateBlurSource(int radius, float shape) {
 	int rowSize = 2 * radius + 1;
 
@@ -49,16 +64,18 @@ string generateBlurSource(int radius, float shape) {
 	}
 
 	stringstream src;
-    src << "#version 120\n";
+	src << "#version 450\n";
 	src << "#extension GL_ARB_texture_rectangle : enable\n";
+	src << "out vec4 outputColor;\n";
 	src << "uniform sampler2DRect source;\n";
+	src << "in vec2 textureCoordinate;\n";
 	src << "uniform vec2 direction;\n";
 	src << "void main(void) {\n";
-	src << "\tvec2 tc = gl_TexCoord[0].st;\n";
-	src << "\tgl_FragColor = " << coefficients[0] << " * texture2DRect(source, tc);\n";
+	src << "\tvec2 tc = textureCoordinate;\n";
+	src << "\toutputColor = " << coefficients[0] << " * texture2DRect(source, tc);\n";
 	for(int i = 1; i < coefficients.size(); i++) {
 		int curOffset = i - 1;
-		src << "\tgl_FragColor += " << coefficients[i] << " * \n";
+		src << "\toutputColor += " << coefficients[i] << " * \n";
 		src << "\t\t(texture2DRect(source, tc - (direction * " << offsets[i - 1] << ")) + \n";
 		src << "\t\ttexture2DRect(source, tc + (direction * " << offsets[i - 1] << ")));\n";
 	}
@@ -67,15 +84,17 @@ string generateBlurSource(int radius, float shape) {
 	return src.str();
 }
 
-string generateCombineSource(int passes, float downsample) {
+string generateCombineSource(int passes, float downsample, int textureWidth, int textureHeight) {
 	vector<string> combineNames;
 	for(int i = 0; i < passes; i++) {
 		combineNames.push_back("s" + ofToString(i));
 	}
 	stringstream src;
-    src << "#version 120\n";
+	src << "#version 450\n";
 	src << "#extension GL_ARB_texture_rectangle : enable\n";
+	src << "out vec4 outputColor;\n";
 	src << "uniform sampler2DRect " << ofJoinString(combineNames, ",") << ";\n";
+	src << "in vec2 textureCoordinate;\n";
 	src << "uniform float brightness;\n";
 	if(downsample == 1) {
 		src << "const float scaleFactor = 1.;\n";
@@ -83,14 +102,14 @@ string generateCombineSource(int passes, float downsample) {
 		src << "const float scaleFactor = " << downsample << ";\n";
 	}
 	src << "void main(void) {\n";
-	src << "\tvec2 tc = gl_TexCoord[0].st;\n";
+	src << "\tvec2 tc = vec2(textureCoordinate.x + " << textureWidth / 2 << ", textureCoordinate.y + " << textureHeight / 2 << ");\n";
 	for(int i = 0; i < passes; i++) {
-		src << "\tgl_FragColor " << (i == 0 ? "=" : "+=");
-		src << " texture2DRect(" << combineNames[i] << ", tc);";
+		src << "\toutputColor " << (i == 0 ? "=" : "+=");
+		src << " texture2DRect(" << combineNames[i] << ", tc);\n";
 		src << (i + 1 != passes ? " tc *= scaleFactor;" : "");
 		src << "\n";
 	}
-	src << "\tgl_FragColor *= brightness / " << passes << ".;\n";
+	src << "\toutputColor *= brightness / " << passes << ".;\n";
 	src << "}\n";
 	return src.str();
 }
@@ -106,14 +125,18 @@ void ofxBlur::setup(int width, int height, int radius, float shape, int passes, 
 	if(ofGetLogLevel() == OF_LOG_VERBOSE) {
 		cout << "ofxBlur is loading blur shader:" << endl << blurSource << endl;
 	}
+
+	string blurSourceVertex = generateVertexShaderSource();
+	blurShader.setupShaderFromSource(GL_VERTEX_SHADER, generateVertexShaderSource());
 	blurShader.setupShaderFromSource(GL_FRAGMENT_SHADER, blurSource);
 	blurShader.linkProgram();
 
 	if(passes > 1) {
-		string combineSource = generateCombineSource(passes, downsample);
+		string combineSource = generateCombineSource(passes, downsample, width, height);
 		if(ofGetLogLevel() == OF_LOG_VERBOSE) {
 			cout << "ofxBlur is loading combine shader:" << endl << combineSource << endl;
 		}
+		combineShader.setupShaderFromSource(GL_VERTEX_SHADER, generateVertexShaderSource());
 		combineShader.setupShaderFromSource(GL_FRAGMENT_SHADER, combineSource);
 		combineShader.linkProgram();
 	}
@@ -219,7 +242,7 @@ void ofxBlur::end() {
         }
 		combineShader.setUniform1f("brightness", brightness);
         ofPushMatrix();
-        ofTranslate(w / 2, h / 2);
+		ofTranslate(w / 2, h / 2);
         plane.draw();
         ofPopMatrix();
 		combineShader.end();
