@@ -1,6 +1,6 @@
 # NOTE
 
-This version of ofxBlur support GLSL version 4.50
+This version of ofxBlur supports GLSL version 4.50
 
 
 # ofxBlur is an addon for [openFrameworks](http://openframeworks.cc)
